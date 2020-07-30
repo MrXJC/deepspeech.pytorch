@@ -4,12 +4,12 @@ import sys
 from multiprocessing.pool import Pool
 
 import numpy as np
-import torch
 from tqdm import tqdm
 
-from decoder import BeamCTCDecoder
-from model import DeepSpeech
-from opts import add_decoder_args
+import torch
+from deepspeech_pytorch.decoder import BeamCTCDecoder
+from deepspeech_pytorch.opts import add_decoder_args
+from deepspeech_pytorch.utils import load_model
 
 parser = argparse.ArgumentParser(description='Tune an ARPA LM based on a pre-trained acoustic model output')
 parser.add_argument('--model-path', default='models/deepspeech_final.pth',
@@ -32,9 +32,11 @@ if args.lm_path is None:
     print("error: LM must be provided for tuning")
     sys.exit(1)
 
-model = DeepSpeech.load_model(args.model_path)
+model = load_model(model_path=args.model_path,
+                   device='cpu',
+                   use_half=False)
 
-saved_output = np.load(args.saved_output)
+saved_output = torch.load(args.saved_output)
 
 
 def init(beam_width, blank_index, lm_path):
@@ -50,8 +52,6 @@ def decode_dataset(params):
 
     total_cer, total_wer, num_tokens, num_chars = 0, 0, 0, 0
     for out, sizes, target_strings in saved_output:
-        out = torch.Tensor(out).float()
-        sizes = torch.Tensor(sizes).int()
         decoded_output, _, = decoder.decode(out, sizes)
         for x in range(len(target_strings)):
             transcript, reference = decoded_output[x][0], target_strings[x][0]
@@ -60,7 +60,7 @@ def decode_dataset(params):
             total_cer += cer_inst
             total_wer += wer_inst
             num_tokens += len(reference.split())
-            num_chars += len(reference)
+            num_chars += len(reference.replace(' ', ''))
 
     wer = float(total_wer) / num_tokens
     cer = float(total_cer) / num_chars

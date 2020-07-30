@@ -26,13 +26,11 @@ class Decoder(object):
     helper functions. Subclasses should implement the decode() method.
 
     Arguments:
-        labels (string): mapping from integers to characters.
+        labels (list): mapping from integers to characters.
         blank_index (int, optional): index for the blank '_' character. Defaults to 0.
-        space_index (int, optional): index for the space ' ' character. Defaults to 28.
     """
 
     def __init__(self, labels, blank_index=0):
-        # e.g. labels = "_'ABCDEFGHIJKLMNOPQRSTUVWXYZ#"
         self.labels = labels
         self.int_to_char = dict([(i, c) for (i, c) in enumerate(labels)])
         self.blank_index = blank_index
@@ -88,13 +86,22 @@ class Decoder(object):
 
 
 class BeamCTCDecoder(Decoder):
-    def __init__(self, labels, lm_path=None, alpha=0, beta=0, cutoff_top_n=40, cutoff_prob=1.0, beam_width=100,
-                 num_processes=4, blank_index=0):
+    def __init__(self,
+                 labels,
+                 lm_path=None,
+                 alpha=0,
+                 beta=0,
+                 cutoff_top_n=40,
+                 cutoff_prob=1.0,
+                 beam_width=100,
+                 num_processes=4,
+                 blank_index=0):
         super(BeamCTCDecoder, self).__init__(labels)
         try:
             from ctcdecode import CTCBeamDecoder
         except ImportError:
             raise ImportError("BeamCTCDecoder requires paddledecoder package.")
+        labels = list(labels)  # Ensure labels are a list before passing to decoder
         self._decoder = CTCBeamDecoder(labels, lm_path, alpha, beta, cutoff_top_n, cutoff_prob, beam_width,
                                        num_processes, blank_index)
 
@@ -147,7 +154,11 @@ class GreedyDecoder(Decoder):
     def __init__(self, labels, blank_index=0):
         super(GreedyDecoder, self).__init__(labels, blank_index)
 
-    def convert_to_strings(self, sequences, sizes=None, remove_repetitions=False, return_offsets=False):
+    def convert_to_strings(self,
+                           sequences,
+                           sizes=None,
+                           remove_repetitions=False,
+                           return_offsets=False):
         """Given a list of numeric sequences, returns the corresponding strings"""
         strings = []
         offsets = [] if return_offsets else None
@@ -162,7 +173,10 @@ class GreedyDecoder(Decoder):
         else:
             return strings
 
-    def process_string(self, sequence, size, remove_repetitions=False):
+    def process_string(self,
+                       sequence,
+                       size,
+                       remove_repetitions=False):
         string = ''
         offsets = []
         for i in range(size):
@@ -192,6 +206,8 @@ class GreedyDecoder(Decoder):
             offsets: time step per character predicted
         """
         _, max_probs = torch.max(probs, 2)
-        strings, offsets = self.convert_to_strings(max_probs.view(max_probs.size(0), max_probs.size(1)), sizes,
-                                                   remove_repetitions=True, return_offsets=True)
+        strings, offsets = self.convert_to_strings(max_probs.view(max_probs.size(0), max_probs.size(1)),
+                                                   sizes,
+                                                   remove_repetitions=True,
+                                                   return_offsets=True)
         return strings, offsets
