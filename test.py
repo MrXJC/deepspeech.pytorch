@@ -1,5 +1,5 @@
 import argparse
-
+import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -8,6 +8,7 @@ from data.data_loader import SpectrogramDataset, AudioDataLoader
 from decoder import GreedyDecoder
 from opts import add_decoder_args, add_inference_args
 from utils import load_model
+import os
 
 parser = argparse.ArgumentParser(description='DeepSpeech transcription')
 parser = add_inference_args(parser)
@@ -20,10 +21,11 @@ parser.add_argument('--save-output', default=None, help="Saves output of model f
 parser = add_decoder_args(parser)
 
 
-def evaluate(test_loader, device, model, decoder, target_decoder, save_output=False, verbose=False, half=False):
+def evaluate(test_loader, device, model, decoder, target_decoder, save_output=None, verbose=False, half=False):
     model.eval()
     total_cer, total_wer, num_tokens, num_chars = 0, 0, 0, 0
     output_data = []
+    tmp = []
     for i, (data) in tqdm(enumerate(test_loader), total=len(test_loader)):
         inputs, targets, input_percentages, target_sizes = data
         input_sizes = input_percentages.mul_(int(inputs.size(3))).int()
@@ -42,9 +44,10 @@ def evaluate(test_loader, device, model, decoder, target_decoder, save_output=Fa
         decoded_output, _ = decoder.decode(out, output_sizes)
         target_strings = target_decoder.convert_to_strings(split_targets)
 
-        if save_output is not None:
+        if save_output:
             # add output to data array, and continue
-            output_data.append((out.cpu().numpy(), output_sizes.numpy(), target_strings))
+            output_data.append((out.cpu(), output_sizes, target_strings))
+
         for x in range(len(target_strings)):
             transcript, reference = decoded_output[x][0], target_strings[x][0]
             wer_inst = decoder.wer(transcript, reference)
@@ -54,21 +57,22 @@ def evaluate(test_loader, device, model, decoder, target_decoder, save_output=Fa
             num_tokens += len(reference.split())
             num_chars += len(reference.replace(' ', ''))
             if verbose:
-                print("Ref:", reference.lower())
-                print("Hyp:", transcript.lower())
-                print("WER:", float(wer_inst) / len(reference.split()),
-                      "CER:", float(cer_inst) / len(reference.replace(' ', '')), "\n")
+                tmp_ ={"Ref": reference.lower(),
+                         "Hyp": transcript.lower(),
+                         "WER": float(wer_inst) / (len(reference.split())+1),
+                         "CER": float(cer_inst) / (len(reference.replace(' ', ''))+1)}
+                print(tmp_)
+                tmp.append(tmp_)
     wer = float(total_wer) / num_tokens
     cer = float(total_cer) / num_chars
-    return wer * 100, cer * 100, output_data
+    return wer * 100, cer * 100, output_data, tmp
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
     torch.set_grad_enabled(False)
     device = torch.device("cuda" if args.cuda else "cpu")
-    model = load_model(device, args.model_path, args.half)
-
+    model = load_model(device, args.model_path, args.model_name, args.half)
     if args.decoder == "beam":
         from decoder import BeamCTCDecoder
 
@@ -80,11 +84,12 @@ if __name__ == '__main__':
     else:
         decoder = None
     target_decoder = GreedyDecoder(model.labels, blank_index=model.labels.index('_'))
-    test_dataset = SpectrogramDataset(audio_conf=model.audio_conf, manifest_filepath=args.test_manifest,
+    test_dataset = SpectrogramDataset(audio_conf=model.audio_conf, manifest_filepath=args.test_manifest, is_pinyin=args.pinyin,
+
                                       labels=model.labels, normalize=True)
     test_loader = AudioDataLoader(test_dataset, batch_size=args.batch_size,
                                   num_workers=args.num_workers)
-    wer, cer, output_data = evaluate(test_loader=test_loader,
+    wer, cer, output_data, tmp = evaluate(test_loader=test_loader,
                                      device=device,
                                      model=model,
                                      decoder=decoder,
@@ -92,9 +97,11 @@ if __name__ == '__main__':
                                      save_output=args.save_output,
                                      verbose=args.verbose,
                                      half=args.half)
+    pd.DataFrame(tmp).to_csv(os.path.join(os.path.dirname(args.test_manifest), 'test_result.csv'), index=None)
 
     print('Test Summary \t'
           'Average WER {wer:.3f}\t'
           'Average CER {cer:.3f}\t'.format(wer=wer, cer=cer))
     if args.save_output is not None:
-        np.save(args.save_output, output_data)
+        torch.save(output_data, args.save_output)
+

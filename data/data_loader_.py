@@ -138,7 +138,7 @@ class SpectrogramParser(AudioParser):
 
 
 class SpectrogramDataset(Dataset, SpectrogramParser):
-    def __init__(self, audio_conf, manifest_filepath, labels, is_pinyin=True, normalize=False, speed_volume_perturb=False, spec_augment=False):
+    def __init__(self, audio_conf, manifest_filepath, labels, normalize=False, speed_volume_perturb=False, spec_augment=False):
         """
         Dataset that loads tensors via a csv containing file paths to audio files and transcripts separated by
         a comma. Each new line is a different sample. Example below:
@@ -158,28 +158,21 @@ class SpectrogramDataset(Dataset, SpectrogramParser):
         ids = [x.strip().split(',') for x in ids]
         self.ids = ids
         self.size = len(ids)
-        self.is_pinyin = is_pinyin
         self.labels_map = dict([(labels[i], i) for i in range(len(labels))])
         super(SpectrogramDataset, self).__init__(audio_conf, normalize, speed_volume_perturb, spec_augment)
 
     def __getitem__(self, index):
         sample = self.ids[index]
-        audio_path, pinyin, text = sample[0], sample[1], sample[2]
+        audio_path, transcript_path = sample[0], sample[1]
         spect = self.parse_audio(audio_path)
-        if self.is_pinyin:
-            transcript = self.parse_pinyin(pinyin)
-        else:
-            transcript = self.parse_text(text)
+        transcript = self.parse_transcript(transcript_path)
         return spect, transcript
 
-    def parse_pinyin(self, transcript):
-        transcript = list(filter(None, [self.labels_map.get(x) for x in transcript.split(' ')]))
+    def parse_transcript(self, transcript_path):
+        with open(transcript_path, 'r', encoding='utf8') as transcript_file:
+            transcript = transcript_file.read().replace('\n', '')
+        transcript = list(filter(None, [self.labels_map.get(x) for x in list(transcript)]))
         return transcript
-
-    def parse_text(self, transcript):
-        transcript = list(filter(None, [self.labels_map.get(x) for x in list(transcript.replace(' ', ''))]))
-        return transcript
-
 
     def __len__(self):
         return self.size

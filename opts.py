@@ -23,4 +23,7 @@ def add_inference_args(parser):
     parser.add_argument('--decoder', default="greedy", choices=["greedy", "beam"], type=str, help="Decoder to use")
     parser.add_argument('--model-path', default='models/deepspeech_final.pth',
                         help='Path to model file created by training')
+    parser.add_argument('--model-name', default='DeepSpeech', help='DFCNN & DeepSpeech')
+    parser.add_argument('--pinyin', action='store_true', help='pinyin or text')
+    parser.add_argument('--max-length', default=20, type=int, help='the max length of audio')
     return parser

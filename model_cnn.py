@@ -127,10 +127,10 @@ class Lookahead(nn.Module):
                + ', context=' + str(self.context) + ')'
 
 
-class DeepSpeech(nn.Module):
-    def __init__(self, rnn_type=nn.LSTM, labels="abc", rnn_hidden_size=768, nb_layers=5, audio_conf=None,
+class DFCNN(nn.Module):
+    def __init__(self, rnn_type=nn.LSTM, labels=[1, 2, 3], rnn_hidden_size=768, nb_layers=5, audio_conf=None,
                  bidirectional=True, context=20):
-        super(DeepSpeech, self).__init__()
+        super(DFCNN, self).__init__()
 
         # model metadata needed for serialization/deserialization
         if audio_conf is None:
@@ -146,9 +146,8 @@ class DeepSpeech(nn.Module):
         sample_rate = self.audio_conf.get("sample_rate", 16000)
         window_size = self.audio_conf.get("window_size", 0.02)
         num_classes = len(self.labels)
-
         self.conv = MaskConv(nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
+            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 1), padding=(20, 5)),
             nn.BatchNorm2d(32),
             nn.Hardtanh(0, 20, inplace=True),
             nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5)),
@@ -160,28 +159,23 @@ class DeepSpeech(nn.Module):
         rnn_input_size = int(math.floor(rnn_input_size + 2 * 20 - 41) / 2 + 1)
         rnn_input_size = int(math.floor(rnn_input_size + 2 * 10 - 21) / 2 + 1)
         rnn_input_size *= 32
-
-        rnns = []
-        rnn = BatchRNN(input_size=rnn_input_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
-                       bidirectional=bidirectional, batch_norm=False)
-        rnns.append(('0', rnn))
-        for x in range(nb_layers - 1):
-            rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
-                           bidirectional=bidirectional)
-            rnns.append(('%d' % (x + 1), rnn))
-        self.rnns = nn.Sequential(OrderedDict(rnns))
-        self.lookahead = nn.Sequential(
-            # consider adding batch norm?
-            Lookahead(rnn_hidden_size, context=context),
-            nn.Hardtanh(0, 20, inplace=True)
-        ) if not bidirectional else None
-
-        fully_connected = nn.Sequential(
+        rnn_hidden_size *= 1.5
+        rnn_hidden_size = int(rnn_hidden_size)
+        self.conv1d = nn.Sequential(
+            nn.Conv1d(rnn_input_size, rnn_hidden_size, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm1d(rnn_hidden_size),
-            nn.Linear(rnn_hidden_size, num_classes, bias=False)
-        )
-        self.fc = nn.Sequential(
-            SequenceWise(fully_connected),
+            nn.Hardtanh(0, 20, inplace=True),
+            nn.Conv1d(rnn_hidden_size, rnn_hidden_size, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(rnn_hidden_size),
+            nn.Hardtanh(0, 20, inplace=True),
+            nn.Conv1d(rnn_hidden_size, rnn_hidden_size, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(rnn_hidden_size),
+            nn.Hardtanh(0, 20, inplace=True),
+            nn.Conv1d(rnn_hidden_size, rnn_hidden_size, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(rnn_hidden_size),
+            nn.Hardtanh(0, 20, inplace=True),
+
+            nn.Conv1d(rnn_hidden_size, num_classes, kernel_size=1, stride=1),
         )
         self.inference_softmax = InferenceBatchSoftmax()
 
@@ -192,16 +186,8 @@ class DeepSpeech(nn.Module):
 
         sizes = x.size()
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
-        x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
-
-        for rnn in self.rnns:
-            x = rnn(x, output_lengths)
-
-        if not self.bidirectional:  # no need for lookahead layer in bidirectional
-            x = self.lookahead(x)
-
-        x = self.fc(x)
-        x = x.transpose(0, 1)
+        x = self.conv1d(x)
+        x = x.transpose(1, 2)
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
         return x, output_lengths
@@ -229,8 +215,8 @@ class DeepSpeech(nn.Module):
                     rnn_type=supported_rnns[package['rnn_type']],
                     bidirectional=package.get('bidirectional', True))
         model.load_state_dict(package['state_dict'])
-        for x in model.rnns:
-            x.flatten_parameters()
+        # for x in model.rnns:
+        #     x.flatten_parameters()
         return model
 
     @classmethod
@@ -295,7 +281,7 @@ if __name__ == '__main__':
                         help='Path to model file created by training')
     args = parser.parse_args()
     package = torch.load(args.model_path, map_location=lambda storage, loc: storage)
-    model = DeepSpeech.load_model(args.model_path)
+    model = DFCNN.load_model(args.model_path)
 
     print("Model name:         ", os.path.basename(args.model_path))
     print("DeepSpeech version: ", model.version)

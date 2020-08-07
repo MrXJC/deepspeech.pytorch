@@ -53,7 +53,7 @@ class Decoder(object):
         # build mapping of words to integers
         b = set(s1.split() + s2.split())
         word2char = dict(zip(b, range(len(b))))
-
+        # print(word2char)
         # map the words to a char array (Levenshtein packages only accepts
         # strings)
         w1 = [chr(word2char[w]) for w in s1.split()]
@@ -70,6 +70,7 @@ class Decoder(object):
             s2 (string): space-separated sentence
         """
         s1, s2, = s1.replace(' ', ''), s2.replace(' ', '')
+        # print(s1,s2)
         return Lev.distance(s1, s2)
 
     def decode(self, probs, sizes=None):
@@ -105,7 +106,7 @@ class BeamCTCDecoder(Decoder):
             for p, utt in enumerate(batch):
                 size = seq_len[b][p]
                 if size > 0:
-                    transcript = ''.join(map(lambda x: self.int_to_char[x.item()], utt[0:size]))
+                    transcript = ' '.join(map(lambda x: self.int_to_char[x.item()], utt[0:size]))
                 else:
                     transcript = ''
                 utterances.append(transcript)
@@ -172,10 +173,11 @@ class GreedyDecoder(Decoder):
                 if remove_repetitions and i != 0 and char == self.int_to_char[sequence[i - 1].item()]:
                     pass
                 elif char == self.labels[self.space_index]:
-                    string += ' '
-                    offsets.append(i)
+                    # string += ' '
+                    # offsets.append(i)
+                    pass
                 else:
-                    string = string + char
+                    string = string + ' ' + char
                     offsets.append(i)
         return string, torch.tensor(offsets, dtype=torch.int)
 

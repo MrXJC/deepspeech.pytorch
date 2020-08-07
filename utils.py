@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 
 from model import DeepSpeech
+from model_cnn import DFCNN
 
 
 def reduce_tensor(tensor, world_size, reduce_op_max=False):
@@ -31,10 +32,23 @@ def check_loss(loss, loss_value):
     return loss_valid, error
 
 
-def load_model(device, model_path, use_half):
-    model = DeepSpeech.load_model(model_path)
+def load_model(device, model_path, model_name, use_half):
+    if model_name == 'DeepSpeech':
+        model = DeepSpeech.load_model(model_path)
+    elif model_name == 'DFCNN':
+        model = DFCNN.load_model(model_path)
     model.eval()
     model = model.to(device)
     if use_half:
         model = model.half()
     return model
+
+def remove_parallel_wrapper(model):
+    """
+    Return the model or extract the model out of the parallel wrapper
+    :param model: The training model
+    :return: The model without parallel wrapper
+    """
+    # Take care of distributed/data-parallel wrapper
+    model_no_wrapper = model.module if hasattr(model, "module") else model
+    return model_no_wrapper
